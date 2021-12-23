@@ -1,2 +1,2 @@
 # Healthcare-Operations-Open-Data
-Open Datasets on Healthcare Operations
+This is a repository collecting some open datasets on healthcare operations. Each dataset should be cited separately with proper attributions.
