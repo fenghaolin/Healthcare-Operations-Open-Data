@@ -1,0 +1,298 @@
+---
+title: "For the preparation of the paper submitted to Data in Brief"
+date: "`r paste0('Last run at ', Sys.time(), ' on ', Sys.info()['nodename'], ', OS=',Sys.info()['sysname'])`"
+output: 
+  html_notebook:
+    theme: united
+    df_print: paged
+    code_folding: hide
+  toc: yes
+---
+```{r setup, include=FALSE}
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(tidyr))
+suppressPackageStartupMessages(library(ggplot2))
+```
+
+# Data pre-processing
+* Read the Raw data 'Raw.csv' under subfolder 'data'
+```{r}
+Raw_df <- read.csv(
+          file='./data/Raw.csv',
+          stringsAsFactors = T)
+Raw_df$SessionID <- as.character(Raw_df$SessionID)
+Raw_df$TimeStamp <- as.character(Raw_df$TimeStamp)
+summary(Raw_df)
+```
+## Compute the impplied service time using the difference of the beginning time of two consecutive consultations in the same session
+* Define the function: for a given session, use the consecutive time stamps to calculate service time
+```{r}
+calServTime <- function(session_df){
+  stopifnot(length(unique(session_df$SessionID)) == 1) #stop if not the same session
+  session_df <- session_df[order(session_df$TimeStamp),]
+  TimeStamp = strptime(session_df$TimeStamp,"%H:%M:%S")
+  session_df$ServTime<-c(as.numeric(difftime(TimeStamp[-1],
+                                             TimeStamp[-nrow(session_df)],units = 'secs')),
+                     NA)
+  return(session_df[-nrow(session_df),])
+}
+```
+* Compute the service time and add it as variable to the dataframe ServiceTime_df
+```{r}
+tmp_ID <- unique(Raw_df$SessionID)
+ServiceTime_df <- data.frame()
+for(ID in tmp_ID){
+  ServiceTime_df<-rbind(ServiceTime_df,
+                  calServTime(session_df = Raw_df %>% filter(SessionID ==ID))
+  )
+}
+ServiceTime_df <- ServiceTime_df %>% select(-TimeStamp)
+summary(ServiceTime_df)
+```
+
+* Save the data into the file 'ServiceTime.csv'
+```{r}
+write.csv(ServiceTime_df, 
+          file='./data/ServiceTime.csv', row.names = F)
+```
+
+# Preliminary Analysis
+## List of Tasks
+1. Summary statistics of the 'number of consultations per session'
+2. Number of sessions for each Day-Of-Week, and for Working Day vs Non-Working Day
+3. Number of 'AM' sessions vs. that of 'PM' sessions
+4. Number of consultation records grouped by 'Gender'
+5. Number of consultation records grouped by 'M.Cancer' (M.Cancer=TRUE if and only if the visit was mainly for some sort of cancer)
+6. Number of consultation records grouped by 'S.Cancer' (S.Cancer=TRUE if and only if the patient has some a certain type of cancer that was not the main reason for the consultation visit)
+7. Number of consultation records grouped by 'Gender' and 'M.Cancer'
+8. Number of consultation records grouped by 'Gender' and 'S.Cancer'
+9. The distribution of 'Visit.No'. Explanation of 'Visit.No': by example. If a consultation record was the 3rd time this patient had been consulting this physician for the same reason (the same medical condition), then Visit.No=3 in this record.  
+10. Service time distribution exploration: Overall distribution and the distribution faceting on various variables
+
+## <span style="color:red"> When 'Service-Time' is not involved, we use all the records (from  Raw.csv </span>
+
+## 1. Summary statistics of the 'number of consultations per session'
+```{r}
+Raw_df %>% 
+  group_by(SessionID) %>%
+  summarise(count = n()) %>% 
+  summary()
+```
+
+## 2. Number of sessions for each Day-Of-Week
+```{r}
+Raw_df %>% 
+  mutate(DayOfWeek=ordered(DayOfWeek,levels=c('Tuesday','Wednesday','Friday','Saturday'))) %>% 
+  group_by(
+  DayOfWeek
+  ) %>% 
+  summarise(num_Session = length(unique(SessionID)))
+```
+
+* 2.b Number of Working Day Sessions vs. the Non-Working Day one
+```{r}
+Raw_df %>% 
+  mutate(WorkingDay=ordered(WorkingDay,levels=c('YES','NO'))) %>%
+  group_by(
+  WorkingDay
+  ) %>% 
+  summarise(num_Session = length(unique(SessionID)))
+```
+
+## 3. Number of 'AM' sessions vs. that of 'PM' sessions
+
+```{r}
+Raw_df %>% 
+  mutate(AM_PM=ordered(AM_PM,levels=c('Morning','Afternoon'))) %>%
+  group_by(
+  AM_PM
+  ) %>% 
+  summarise(num_Session = length(unique(SessionID)))
+```
+
+## 4. Number of consultation records grouped by 'Gender'
+
+```{r}
+Raw_df %>% 
+  select(Gender) %>% summary()
+```
+
+## 5. Number of consultation records grouped by 'M.Cancer' 
+* Note M.Cancer=TRUE if and only if the visit was mainly for some sort of cancer
+
+```{r}
+Raw_df %>% select(
+  M.Cancer
+  ) %>% summary()
+```
+
+## 6. Number of consultation records grouped by 'S.Cancer' 
+* Note: S.Cancer=TRUE if and only if the patient has some a certain type of cancer that was not the main reason for the consultation visit
+
+```{r}
+Raw_df %>% select(
+  S.Cancer
+  ) %>% summary()
+```
+
+# 7. Number of consultation records grouped by 'Gender' and 'M.Cancer'
+
+```{r}
+Raw_df %>% group_by(
+  Gender,M.Cancer
+  ) %>% tally() %>% 
+  spread(
+    Gender,
+    n)
+```
+
+# 8. Number of consultation records grouped by 'Gender' and 'S.Cancer'
+
+```{r}
+Raw_df %>% group_by(
+  Gender,S.Cancer
+  ) %>% tally() %>% 
+  spread(
+    Gender,
+    n)
+```
+
+# 9. The distribution of 'Visit.No'. 
+* Explanation of 'Visit.No': by example. If a consultation record was the 3rd time this patient had been consulting this physician for the same reason (the same medical condition), then Visit.No=3 in this record.  
+ 
+* Basic Summary of Visit.No
+```{r}
+Raw_df %>% select(Visit.No) %>% summary()
+```
+* Histogram of Visit.No
+```{r}
+old.par = par(no.readonly = T)
+par(mfrow=c(1,2))
+hist(Raw_df$Visit.No,main='Histogram of Visit.No', xlab='',col='blue')
+boxplot(Raw_df$Visit.No,main='boxplot of Visit.No', xlab='',col='blue')
+wanted_devices <- c("png", "pdf")
+# Loop over all devices and copy the plot there
+for (device in wanted_devices) {
+  dev.copy(
+    eval(parse(text = device)),
+    paste("./figure/VisitNo", device, sep = ".")  # 
+  )
+  dev.off()
+}
+par(old.par)
+```
+
+
+
+# 10. Service time distribution exploration
+* Note: since we are using the calculated service time data, we need to use ServiceTime_df instead of Raw_df.
+
+* Overall distribution and the distribution faceting on various variables 
+```{r}
+ServiceTime_df %>% group_by(M.Cancer, Gender) %>%  summarise(count=n(),ServTime_Mean=mean(ServTime))
+```
+
+# ServiceTime Distribution faceting on M.Cancer
+```{r,out.height="150%"}
+old.par = par(no.readonly = T)
+par(mfrow=c(2,1))
+ServT_MainCancer = subset(ServiceTime_df$ServTime,ServiceTime_df$M.Cancer)
+ServT_NotMainCancer = subset(ServiceTime_df$ServTime,!ServiceTime_df$M.Cancer)
+xlim = range(c(ServT_MainCancer,ServT_NotMainCancer)) 
+title_M_Cancer = sprintf('Service-Time (M.Cancer=TRUE): (mean,median)=(%.0f,%.0f) seconds',
+                         mean(ServT_MainCancer),median(ServT_MainCancer))
+title_notM_Cancer = sprintf('Service-Time (M.Cancer=FALSE): (mean,median)=(%.0f,%.0f) seconds',
+                         mean(ServT_NotMainCancer),median(ServT_NotMainCancer))
+hist(ServT_MainCancer,main=title_M_Cancer, 
+     probability =TRUE, xlim= xlim,
+     xlab='ServiceTime',col='blue')
+hist(ServT_NotMainCancer,main=title_notM_Cancer, 
+     probability =TRUE, xlim= xlim,
+     xlab='ServiceTime',col='blue')
+wanted_devices <- c("png", "pdf")
+# Loop over all devices and copy the plot there
+for (device in wanted_devices) {
+  dev.copy(
+    eval(parse(text = device)),
+    paste("./figure/ServTime_M_Cancer", device, sep = ".")  # 
+  )
+  dev.off()
+}
+par(old.par)
+```
+
+# ServiceTime Distribution faceting on S.Cancer
+```{r,out.height="150%"}
+old.par = par(no.readonly = T)
+par(mfrow=c(2,1))
+ServT_SecondaryCancer = subset(ServiceTime_df$ServTime,ServiceTime_df$S.Cancer)
+ServT_NotSecondaryCancer = subset(ServiceTime_df$ServTime,!ServiceTime_df$S.Cancer)
+xlim = range(c(ServT_SecondaryCancer,ServT_NotSecondaryCancer)) 
+title_M_Cancer = sprintf('Service-Time (S.Cancer=TRUE): (mean,median)=(%.0f,%.0f) seconds',
+                         mean(ServT_SecondaryCancer),median(ServT_SecondaryCancer))
+title_notM_Cancer = sprintf('Service-Time (S.Cancer=FALSE): (mean,median)=(%.0f,%.0f) seconds',
+                         mean(ServT_NotSecondaryCancer),median(ServT_NotSecondaryCancer))
+hist(ServT_SecondaryCancer,main=title_M_Cancer, 
+     probability =TRUE, xlim= xlim,
+     xlab='ServiceTime',col='blue')
+hist(ServT_NotSecondaryCancer,main=title_notM_Cancer, 
+     probability =TRUE, xlim= xlim,
+     xlab='ServiceTime',col='blue')
+wanted_devices <- c("png", "pdf")
+# Loop over all devices and copy the plot there
+for (device in wanted_devices) {
+  dev.copy(
+    eval(parse(text = device)),
+    paste("./figure/ServTime_S_Cancer", device, sep = ".")  # 
+  )
+  dev.off()
+}
+par(old.par)
+```
+
+# ServiceTime Distribution faceting on 'Cancer': 
+* M.Cancer and S.Cancer are considered together as 'Cancer'
+```{r,out.height="150%"}
+old.par = par(no.readonly = T)
+par(mfrow=c(2,1))
+Cancer_tag = ServiceTime_df$M.Cancer | ServiceTime_df$S.Cancer 
+ServT_Cancer = subset(ServiceTime_df$ServTime,Cancer_tag)
+ServT_NotCancer = subset(ServiceTime_df$ServTime,!Cancer_tag)
+xlim = range(c(ServT_Cancer,ServT_NotCancer)) 
+title_M_Cancer = sprintf('Service-Time (with Cancer): (mean,median)=(%.0f,%.0f) seconds',
+                         mean(ServT_Cancer),median(ServT_Cancer))
+title_notM_Cancer = sprintf('Service-Time (without Cancer): (mean,median)=(%.0f,%.0f) seconds',
+                         mean(ServT_NotCancer),median(ServT_NotCancer))
+hist(ServT_Cancer,main=title_M_Cancer, 
+     probability =TRUE, xlim= xlim,
+     xlab='ServiceTime',col='blue')
+hist(ServT_NotCancer,main=title_notM_Cancer, 
+     probability =TRUE, xlim= xlim,
+     xlab='ServiceTime',col='blue')
+wanted_devices <- c("png", "pdf")
+# Loop over all devices and copy the plot there
+for (device in wanted_devices) {
+  dev.copy(
+    eval(parse(text = device)),
+    paste("./figure/ServTime_Cancer", device, sep = ".")  # 
+  )
+  dev.off()
+}
+par(old.par)
+```
+
+# The relationship between Service Time and Visit.No
+```{r}
+cor(ServiceTime_df %>% filter(!is.na(Visit.No)) %>% select(Visit.No,ServTime))
+```
+
+# Service Time: Visit.No = 1 vs Visit.No !=1
+```{r}
+ServiceTime_df %>% filter(!is.na(Visit.No)) %>%
+  mutate(FirstVisit= Visit.No==1) %>% ggplot(aes(x=ServTime)) +
+  geom_histogram(bins=30,color='black',fill='blue') + facet_grid(.~FirstVisit,labeller = label_both) +
+  xlab('Service-Time') + theme_bw()
+ggsave('./figure/ServTime_FirstVisit.pdf')
+ggsave('./figure/ServTime_FirstVisit.png')
+```
+
